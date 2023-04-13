@@ -1,32 +1,50 @@
 package com.appdynamics.monitors.kubernetes.SnapshotTasks;
 
-import com.appdynamics.extensions.TasksExecutionServiceProvider;
-import com.appdynamics.extensions.metrics.Metric;
-import com.appdynamics.extensions.util.AssertUtils;
-import com.appdynamics.monitors.kubernetes.Metrics.UploadMetricsTask;
-import com.appdynamics.monitors.kubernetes.Models.AppDMetricObj;
-import com.appdynamics.monitors.kubernetes.Models.SummaryObj;
-import com.appdynamics.monitors.kubernetes.RestClient;
-import com.appdynamics.monitors.kubernetes.Utilities;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.kubernetes.client.ApiClient;
-import io.kubernetes.client.Configuration;
-import io.kubernetes.client.apis.CoreV1Api;
-import io.kubernetes.client.custom.Quantity;
-import io.kubernetes.client.models.*;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_RECS_BATCH_SIZE;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_SCHEMA_DEF_NODE;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_SCHEMA_NAME_NODE;
+import static com.appdynamics.monitors.kubernetes.Utilities.ALL;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddFloat;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddInt;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddObject;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
-import static com.appdynamics.monitors.kubernetes.Constants.*;
-import static com.appdynamics.monitors.kubernetes.Utilities.*;
+import com.appdynamics.extensions.TasksExecutionServiceProvider;
+import com.appdynamics.extensions.metrics.Metric;
+import com.appdynamics.extensions.util.AssertUtils;
+import com.appdynamics.monitors.kubernetes.Constants;
+import com.appdynamics.monitors.kubernetes.Globals;
+import com.appdynamics.monitors.kubernetes.Utilities;
+import com.appdynamics.monitors.kubernetes.Metrics.UploadMetricsTask;
+import com.appdynamics.monitors.kubernetes.Models.AppDMetricObj;
+import com.appdynamics.monitors.kubernetes.Models.SummaryObj;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import io.kubernetes.client.custom.Quantity;
+import io.kubernetes.client.openapi.Configuration;
+import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.models.V1AttachedVolume;
+import io.kubernetes.client.openapi.models.V1Node;
+import io.kubernetes.client.openapi.models.V1NodeAddress;
+import io.kubernetes.client.openapi.models.V1NodeCondition;
+import io.kubernetes.client.openapi.models.V1NodeList;
+import io.kubernetes.client.openapi.models.V1Taint;
 
 public class NodeSnapshotRunner extends SnapshotRunnerBase {
+	
+//	private Map<String,String> Node_Role_Map = new HashMap<String, String>();
+	
     public NodeSnapshotRunner(){
 
     }
@@ -55,20 +73,20 @@ public class NodeSnapshotRunner extends SnapshotRunnerBase {
                 V1NodeList nodeList;
 
                 try {
-                    ApiClient client = Utilities.initClient(config);
+                    io.kubernetes.client.openapi.ApiClient client = Utilities.initClient(config);
                     this.setAPIServerTimeout(client, K8S_API_TIMEOUT);
                     Configuration.setDefaultApiClient(client);
                     CoreV1Api api = new CoreV1Api();
                     this.setCoreAPIServerTimeout(api, K8S_API_TIMEOUT);
                     nodeList = api.listNode(null,
+                            false,
                             null,
                             null,
+                            null, 500,
                             null,
                             null,
-                            null,
-                            null,
-                            null,
-                            null);
+                            K8S_API_TIMEOUT,
+                            false);
                 }
                 catch (Exception ex){
                     throw new Exception("Unable to connect to Kubernetes API server because it may be unavailable or the cluster credentials are invalid", ex);
@@ -101,24 +119,43 @@ public class NodeSnapshotRunner extends SnapshotRunnerBase {
         for(V1Node nodeObj : nodeList.getItems()) {
             ObjectNode nodeObject = mapper.createObjectNode();
             String nodeName = nodeObj.getMetadata().getName();
+            
             nodeObject = checkAddObject(nodeObject, nodeName, "nodeName");
             String clusterName = Utilities.ensureClusterName(config, nodeObj.getMetadata().getClusterName());
 
             SummaryObj summary = getSummaryMap().get(ALL);
             if (summary == null) {
-                summary = initNodeSummaryObject(config, ALL);
+                summary = initNodeSummaryObject(config, ALL,null);
                 getSummaryMap().put(ALL, summary);
+            }
+            
+            boolean isMaster = false;
+            int masters = 0;
+            int workers = 0;
+            if (nodeObj.getMetadata().getLabels() != null) {
+                String labels = "";
+                Iterator it = nodeObj.getMetadata().getLabels().entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry pair = (Map.Entry) it.next();
+                    if (!isMaster && pair.getKey().equals("node-role.kubernetes.io/master")) {
+                        isMaster = true;
+                    }
+                    labels += String.format("%s:%s;", pair.getKey(), pair.getValue());
+                    it.remove();
+                }
+                nodeObject = checkAddObject(nodeObject, labels, "labels");
             }
 
             SummaryObj summaryNode = getSummaryMap().get(nodeName);
             if(Utilities.shouldCollectMetricsForNode(getConfiguration(), nodeName)) {
                 if (summaryNode == null) {
-                    summaryNode = initNodeSummaryObject(config, nodeName);
+                    summaryNode = initNodeSummaryObject(config, nodeName, isMaster ? Constants.MASTER_NODE : Constants.WORKER_NODE);
                     getSummaryMap().put(nodeName, summaryNode);
+                    Globals.NODE_ROLE_MAP.put(nodeName, isMaster ? Constants.MASTER_NODE : Constants.WORKER_NODE);
                 }
             }
 
-
+//            nodeObject = checkAddObject(nodeObject, isMaster ? Constants.MASTER_NODE : Constants.WORKER_NODE + Constants.METRIC_SEPARATOR + nodeName, "nodeName");
             nodeObject = checkAddObject(nodeObject, clusterName, "clusterName");
             nodeObject = checkAddObject(nodeObject, nodeObj.getSpec().getPodCIDR(), "podCIDR");
             String taints = "";
@@ -139,22 +176,7 @@ public class NodeSnapshotRunner extends SnapshotRunnerBase {
             nodeObject = checkAddObject(nodeObject, addresses, "addresses");
 
             //labels
-            boolean isMaster = false;
-            int masters = 0;
-            int workers = 0;
-            if (nodeObj.getMetadata().getLabels() != null) {
-                String labels = "";
-                Iterator it = nodeObj.getMetadata().getLabels().entrySet().iterator();
-                while (it.hasNext()) {
-                    Map.Entry pair = (Map.Entry) it.next();
-                    if (!isMaster && pair.getKey().equals("node-role.kubernetes.io/master")) {
-                        isMaster = true;
-                    }
-                    labels += String.format("%s:%s;", pair.getKey(), pair.getValue());
-                    it.remove();
-                }
-                nodeObject = checkAddObject(nodeObject, labels, "labels");
-            }
+          
             if (isMaster) {
                 nodeObject = checkAddObject(nodeObject, "master", "role");
                 masters++;
@@ -289,10 +311,10 @@ public class NodeSnapshotRunner extends SnapshotRunnerBase {
     }
 
     protected SummaryObj initDefaultSummaryObject(Map<String, String> config){
-        return initNodeSummaryObject(config, ALL);
+        return initNodeSummaryObject(config, ALL,null);
     }
 
-    public  static SummaryObj initNodeSummaryObject(Map<String, String> config, String node){
+    public  static SummaryObj initNodeSummaryObject(Map<String, String> config, String node,String role){
         ObjectMapper mapper = new ObjectMapper();
         ObjectNode summary = mapper.createObjectNode();
         summary.put("nodename", node);
@@ -316,7 +338,7 @@ public class NodeSnapshotRunner extends SnapshotRunnerBase {
 
         ArrayList<AppDMetricObj> metricsList = initMetrics(config, node);
 
-        String path = Utilities.getMetricsPath(config, ALL, node);
+        String path = Utilities.getMetricsPath(config, ALL, node,role);
 
         return new SummaryObj(summary, metricsList, path);
     }

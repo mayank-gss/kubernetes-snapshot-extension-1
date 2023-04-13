@@ -51,4 +51,7 @@ public class Constants {
     public static final String CONFIG_SCHEMA_NAME_EP = "endpointSchemaName";
 
     public static final String CONFIG_RECS_BATCH_SIZE = "batchSize";
+    
+    public static final String WORKER_NODE = "Worker";
+    public static final String MASTER_NODE = "Master";
 }

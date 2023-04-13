@@ -1,5 +1,34 @@
 package com.appdynamics.monitors.kubernetes;
 
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_APP_NAME;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_APP_TIER_NAME;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_CONTROLLER_URL;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_ENTITY_TYPE;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_EVENTS_API_KEY;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_EVENTS_URL;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_GLOBAL_ACCOUNT_NAME;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_NODE_NAMESPACES;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_NODE_NODES;
+import static com.appdynamics.monitors.kubernetes.Constants.DEFAULT_METRIC_PREFIX_NAME;
+import static com.appdynamics.monitors.kubernetes.Constants.METRIC_PATH_NAMESPACES;
+import static com.appdynamics.monitors.kubernetes.Constants.METRIC_PATH_NODES;
+import static com.appdynamics.monitors.kubernetes.Constants.METRIC_SEPARATOR;
+
+import java.io.File;
+import java.math.BigDecimal;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.appdynamics.extensions.conf.MonitorConfiguration;
 import com.appdynamics.monitors.kubernetes.Models.AdqlSearchObj;
 import com.appdynamics.monitors.kubernetes.Models.SummaryObj;
@@ -7,20 +36,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.kubernetes.client.ApiClient;
+
 import io.kubernetes.client.util.Config;
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.math.BigDecimal;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.nio.charset.Charset;
-import java.util.*;
-
-import static com.appdynamics.monitors.kubernetes.Constants.*;
 
 public class Utilities {
     private static final Logger logger = LoggerFactory.getLogger(Utilities.class);
@@ -277,7 +294,24 @@ public class Utilities {
 
     public static String getMetricsPath(Map<String, String> config, String namespace, String node){
         if(!node.equals(ALL)){
-            return String.format("%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NODES, METRIC_SEPARATOR, node);
+        	
+        	if(Globals.NODE_ROLE_MAP.containsKey(node)) {
+        		return String.format("%s%s%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NODES, METRIC_SEPARATOR,Globals.NODE_ROLE_MAP.get(node),METRIC_SEPARATOR, node);
+        	}else {
+        		return String.format("%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NODES, METRIC_SEPARATOR, node);
+        	}
+            
+        }
+        else if (!namespace.equals(ALL)){
+            return String.format("%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, namespace);
+        }
+
+        return getMetricsPath(config);
+    }
+    
+    public static String getMetricsPath(Map<String, String> config, String namespace, String node,String role){
+        if(!node.equals(ALL)){
+            return String.format("%s%s%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NODES, METRIC_SEPARATOR,role,METRIC_SEPARATOR, node);
         }
         else if (!namespace.equals(ALL)){
             return String.format("%s%s%s%s%s", Utilities.getMetricsPath(config), METRIC_SEPARATOR, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, namespace);
@@ -380,8 +414,8 @@ public class Utilities {
         return theObj;
     }
 
-    public static ApiClient initClient(Map<String, String> config) throws Exception{
-        ApiClient client;
+    public static io.kubernetes.client.openapi.ApiClient initClient(Map<String, String> config) throws Exception{
+        io.kubernetes.client.openapi.ApiClient client;
         String apiMode = System.getenv("K8S_API_MODE");
         if (StringUtils.isNotEmpty(apiMode) == false){
             apiMode = config.get("apiMode");

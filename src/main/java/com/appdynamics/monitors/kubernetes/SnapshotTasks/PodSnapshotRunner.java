@@ -1,30 +1,53 @@
 package com.appdynamics.monitors.kubernetes.SnapshotTasks;
 
-import com.appdynamics.extensions.TasksExecutionServiceProvider;
-import com.appdynamics.extensions.metrics.Metric;
-import com.appdynamics.extensions.util.AssertUtils;
-import com.appdynamics.monitors.kubernetes.Metrics.UploadMetricsTask;
-import com.appdynamics.monitors.kubernetes.Models.AppDMetricObj;
-import com.appdynamics.monitors.kubernetes.Models.SummaryObj;
-import com.appdynamics.monitors.kubernetes.RestClient;
-import com.appdynamics.monitors.kubernetes.Utilities;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.kubernetes.client.ApiClient;
-import io.kubernetes.client.Configuration;
-import io.kubernetes.client.apis.CoreV1Api;
-import io.kubernetes.client.custom.Quantity;
-import io.kubernetes.client.models.*;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_RECS_BATCH_SIZE;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_SCHEMA_DEF_POD;
+import static com.appdynamics.monitors.kubernetes.Constants.CONFIG_SCHEMA_NAME_POD;
+import static com.appdynamics.monitors.kubernetes.Utilities.ALL;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddBoolean;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddFloat;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddInt;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddLong;
+import static com.appdynamics.monitors.kubernetes.Utilities.checkAddObject;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
-import static com.appdynamics.monitors.kubernetes.Constants.*;
-import static com.appdynamics.monitors.kubernetes.Utilities.*;
+import com.appdynamics.extensions.TasksExecutionServiceProvider;
+import com.appdynamics.extensions.metrics.Metric;
+import com.appdynamics.extensions.util.AssertUtils;
+import com.appdynamics.monitors.kubernetes.Utilities;
+import com.appdynamics.monitors.kubernetes.Metrics.UploadMetricsTask;
+import com.appdynamics.monitors.kubernetes.Models.AppDMetricObj;
+import com.appdynamics.monitors.kubernetes.Models.SummaryObj;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import io.kubernetes.client.custom.Quantity;
+import io.kubernetes.client.openapi.ApiClient;
+import io.kubernetes.client.openapi.Configuration;
+import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.models.V1Container;
+import io.kubernetes.client.openapi.models.V1ContainerPort;
+import io.kubernetes.client.openapi.models.V1ContainerStatus;
+import io.kubernetes.client.openapi.models.V1NodeAffinity;
+import io.kubernetes.client.openapi.models.V1NodeSelector;
+import io.kubernetes.client.openapi.models.V1NodeSelectorRequirement;
+import io.kubernetes.client.openapi.models.V1NodeSelectorTerm;
+import io.kubernetes.client.openapi.models.V1Pod;
+import io.kubernetes.client.openapi.models.V1PodCondition;
+import io.kubernetes.client.openapi.models.V1PodList;
+import io.kubernetes.client.openapi.models.V1PreferredSchedulingTerm;
+import io.kubernetes.client.openapi.models.V1Toleration;
+import io.kubernetes.client.openapi.models.V1VolumeMount;
 
 public class PodSnapshotRunner extends SnapshotRunnerBase {
 
@@ -74,7 +97,7 @@ public class PodSnapshotRunner extends SnapshotRunnerBase {
                             null,
                             null,
                             null,
-                            null);
+                            null, null);
                 }
                 catch (Exception ex){
                     throw new Exception("Unable to connect to Kubernetes API server because it may be unavailable or the cluster credentials are invalid", ex);
@@ -358,7 +381,7 @@ public class PodSnapshotRunner extends SnapshotRunnerBase {
                 if (container.getSecurityContext() != null ){
 
                     try {
-                        if (Boolean.TRUE.equals(container.getSecurityContext().isPrivileged())) {
+                        if (Boolean.TRUE.equals(container.getSecurityContext().getPrivileged())) {
                             numPrivileged++;
                         }
                     }
